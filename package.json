@@ -1,0 +1,33 @@
+{
+  "name": "dsh-lcbf-memory",
+  "version": "0.1.0",
+  "description": "LCBF+U long-term memory for DeepSeek Harness: Level (core/cold) + Chart (association graph) + Bucket (entity/event/concept) + Forget (decay/cold storage/revive) + Update (state-update dedupe & contradiction invalidation).",
+  "keywords": ["deepseek-harness", "dsh", "dsh-plugin", "memory", "agent-memory", "lcbf"],
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": ["index.mjs", "engine.cjs", "cordis.patch.yml", "README.md"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MikoReimu114514/dsh-lcbf-memory.git"
+  },
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@deepseek-ai/dsh-llm": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-llm": {
+      "optional": true
+    }
+  }
+}
