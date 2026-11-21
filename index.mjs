@@ -36,6 +36,7 @@ export async function apply(ctx, config) {
 
   // ---------- 首轮注入（agent/pre-step：带真实用户消息的 enter 时插记忆快照） ----------
   const injectedSessions = new Set()
+  const reinjectPending = new Set() // 压缩后待重新注入（compaction 会压掉注入的记忆块）
   ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
     let decision
     try { decision = await next() } catch (e) { throw e }
@@ -47,7 +48,7 @@ export async function apply(ctx, config) {
       const sid = LCBF_KEY
       const userMsgs = decision.messages.filter((m) => m?.source?.kind === 'user')
       if (!userMsgs.length) return decision
-      if (injectedSessions.has(sid)) return decision
+      if (injectedSessions.has(sid) && !reinjectPending.has(sid)) return decision
       const lastText = (() => {
         const c = userMsgs[userMsgs.length - 1]?.content
         if (Array.isArray(c)) return c.map((x) => x?.text || '').join('')
@@ -56,6 +57,7 @@ export async function apply(ctx, config) {
       const mem = await engine.formatForPromptAsync(sid, lastText)
       if (!mem) { injectedSessions.add(sid); return decision }
       injectedSessions.add(sid)
+      reinjectPending.delete(sid)
       const block = {
         id: 'lcbf-mem-' + randomUUID(), // v4: every message needs a non-empty id
         role: 'user',
@@ -91,6 +93,8 @@ export async function apply(ctx, config) {
       const sid = session?.id;
       if (!sid) return;
       const t = event?.type;
+      // 压缩：历史被摘要后，注入的 [长期记忆] 可能被压掉 → 标记待重注入
+      if (t === 'compaction/summary' || t === 'compaction/end') { reinjectPending.add(sid); return; }
       if (t !== 'user/message' && t !== 'assistant/message') return;
       const text = extractText(event.data);
       if (!text || text.length < 2) return;
@@ -114,7 +118,7 @@ export async function apply(ctx, config) {
           model: 'deepseek-chat',
           max_tokens: 4000,
           temperature: 0.1,
-          messages: [{ role: 'user', content: '把以下对话提炼成长期记忆条目（JSON数组）。每条：{"text":"一句话事实","bucket":"entity|event|concept","importance":1-10,"event_date":"YYYY-MM-DD"}。event_date=事实发生日期（从对话线索推断，没有用今天）。⭐ 数字/金额/计算结果必须写进 text。只保留值得长期记住的，最多 20 条。只输出JSON数组。\n\n' + text }],
+          messages: [{ role: 'user', content: '把以下对话提炼成长期记忆条目（JSON数组）。每条：{"text":"一句话事实","bucket":"entity|event|concept","importance":1-10,"event_date":"YYYY-MM-DD"}。event_date=事实发生日期（从对话线索推断，没有用今天）。⭐ 数字/金额/计算结果必须写进 text。⭐ 频率副词必须原样保留（通常/一般/总是/每次/有时/从不/不再；英文 usually/always/every/never）——「我通常六点去健身房」不能写成「六点去健身房」，丢了频率词这条会被当成一次性事件；同一习惯出现两个不同值时（2月说通常7点、5月说通常6点）各记一条、各自带日期。⭐ 计划和已完成必须分开写：说「我想试/打算/准备/下次」是计划（写「计划…」），只有真的做了才写已完成；绝不允许把计划写成做了，也不要把旧事件的结果安到新计划上。⭐ 同一件事在多个会话出现时，entities 用同一个名字（同一项目/同一物品用同一称呼），避免被当成两件事。⭐ 只保留值得长期记住的，最多 20 条。只输出JSON数组。\n\n' + text }],
         }),
         signal: AbortSignal.timeout(90000),
       });
